@@ -12,10 +12,10 @@ class Settings(BaseSettings):
     ENABLE_SECURITY_SCAN: bool = True
     ENABLE_QUALITY_SCAN: bool = True
     # Model Configuration (Gemini via LiteLLM)
-    SECURITY_MODEL_NAME: str = "gemini/gemini-2.5-flash"
-    QUALITY_MODEL_NAME: str = "gemini/gemini-2.5-flash"
-    ARCHITECT_MODEL_NAME: str = "gemini/gemini-2.5-flash"
-    SYNTHESIZER_MODEL_NAME: str = "gemini/gemini-2.5-flash"
+    SECURITY_MODEL_NAME: str = "gemini/gemini-2.0-flash-live"
+    QUALITY_MODEL_NAME: str = "gemini/gemini-2.0-flash-live"
+    ARCHITECT_MODEL_NAME: str = "gemini/gemini-2.0-flash-live"
+    SYNTHESIZER_MODEL_NAME: str = "gemini/gemini-2.0-flash-live"
 
     class Config:
         env_file = ".env"
