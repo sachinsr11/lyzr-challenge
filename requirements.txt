@@ -1,0 +1,9 @@
+fastapi==0.109.0
+uvicorn==0.27.0
+pydantic==2.6.0
+pydantic-settings==2.1.0
+pygithub==2.1.1
+lyzr-automata==0.1.2  # Primary Agent Framework
+python-dotenv==1.0.1
+requests==2.31.0
+litellm
