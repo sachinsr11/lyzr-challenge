@@ -9,6 +9,8 @@ class Settings(BaseSettings):
     GITHUB_TOKEN: str = ""
     WEBHOOK_SECRET: str = ""
 
+    ENABLE_SECURITY_SCAN: bool = True
+    ENABLE_QUALITY_SCAN: bool = True
     # Model Configuration (Gemini via LiteLLM)
     SECURITY_MODEL_NAME: str = "gemini/gemini-2.5-flash"
     QUALITY_MODEL_NAME: str = "gemini/gemini-2.5-flash"
