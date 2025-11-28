@@ -191,3 +191,15 @@ def verify_webhook_signature(payload_body: bytes, signature_header: str) -> bool
     ).hexdigest()
     
     return hmac.compare_digest(computed_hash, expected_signature)
+
+def is_test_file(filename: str) -> bool:
+    """
+    Detects if a file is a test file to allow relaxed rules.
+    """
+    fname = filename.lower()
+    return (
+        fname.startswith("tests/") or 
+        fname.startswith("test/") or 
+        fname.endswith("_test.py") or 
+        fname.endswith("test.py")
+    )

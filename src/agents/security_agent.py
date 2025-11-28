@@ -5,7 +5,7 @@ from lyzr_automata.pipelines.linear_sync_pipeline import LinearSyncPipeline
 from src.custom_llm import CustomLiteLLM
 from src.models import ReviewComment
 from src.config import settings
-from src.prompts import SECURITY_PERSONA
+from src.prompts import SECURITY_PERSONA, SECURITY_INSTRUCTION_SUFFIX
 from src.utils import clean_json_output, validate_json_structure
 
 logger = logging.getLogger(__name__)
@@ -37,6 +37,8 @@ class SecurityAgent:
         # 1. Prepare Instruction with strict JSON schema enforcement
         instruction = f"""
         Analyze the following DIFF HUNK from '{filename}'.
+
+        {SECURITY_INSTRUCTION_SUFFIX}
 
         IMPORTANT:
         - This hunk begins at line {start_line} in the actual file.

@@ -5,7 +5,7 @@ from lyzr_automata.pipelines.linear_sync_pipeline import LinearSyncPipeline
 from src.custom_llm import CustomLiteLLM
 from src.models import ReviewComment
 from src.config import settings
-from src.prompts import ARCHITECT_PERSONA
+from src.prompts import ARCHITECT_PERSONA, ARCHITECT_INSTRUCTION_SUFFIX
 from src.utils import clean_json_output, validate_json_structure
 
 logger = logging.getLogger(__name__)
@@ -41,6 +41,8 @@ class ArchitectAgent:
         instruction = f"""
         Analyze the following DIFF HUNK from '{filename}'.
 
+        {ARCHITECT_INSTRUCTION_SUFFIX}
+        
         IMPORTANT:
         - This hunk begins at line {start_line} in the actual file.
         - If you detect an issue on a line inside this hunk, compute the REAL file line number as:
