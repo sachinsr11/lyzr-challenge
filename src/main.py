@@ -17,43 +17,27 @@ app = FastAPI(
     description="Automated Pull Request Review Agent"
 )
 
-
 # Global Orchestrator Instance
-# We instantiate it once to reuse connections
 orchestrator = ReviewOrchestrator()
 
+# --- 🚀 NEW: IN-MEMORY CACHE TO PREVENT DUPLICATES ---
+# Stores the SHA of commits we have already analyzed.
+# Format: { "repo_name/pr_number/commit_sha" }
+PROCESSED_COMMITS = set()
 
 @app.get("/health", status_code=status.HTTP_200_OK)
 def health_check():
-    """
-    Health Check Endpoint.
-    """
-    # Check if critical env vars are loaded
-    github_configured = bool(settings.GITHUB_TOKEN)
-    google_configured = bool(settings.GOOGLE_API_KEY)
-    
     return {
         "status": "active", 
         "service": settings.APP_NAME,
-        "github_configured": github_configured,
-        "ai_configured": google_configured 
+        "github_configured": bool(settings.GITHUB_TOKEN),
+        "ai_configured": bool(settings.GOOGLE_API_KEY) 
     }
-
 
 @app.post("/review-diff", response_model=AnalysisReport)
 def manual_diff_review(request: RawDiffRequest):
-    """
-    Synchronous Endpoint for Local Testing.
-    1. Accepts raw diff text in JSON body.
-    2. Runs the full analysis pipeline synchronously.
-    3. Returns the JSON report immediately.
-    """
-    logger.info("Received manual diff review request")
-    
-    # Validate that diff_text is not empty
     if not request.diff_text.strip():
         raise HTTPException(status_code=400, detail="Diff text cannot be empty")
-    
     try:
         report = orchestrator.process_diff_text(request.diff_text)
         return report
@@ -61,46 +45,61 @@ def manual_diff_review(request: RawDiffRequest):
         logger.error(f"Review failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
-
 @app.post("/webhook", status_code=status.HTTP_200_OK)
 async def github_webhook(
     request: Request, 
     background_tasks: BackgroundTasks
 ):
     """
-    GitHub Webhook Listener.
+    GitHub Webhook Listener with Deduplication.
     """
     # 0. Validate GitHub Event Type
     github_event = request.headers.get("X-GitHub-Event", "")
     if github_event != "pull_request":
-        logger.info(f"Ignoring non-PR event: {github_event}")
-        return {"status": "ignored", "reason": f"Event '{github_event}' not supported"}
+        return {"status": "ignored", "reason": "Event not supported"}
     
-    # 1. Get Raw Body (Critical for HMAC)
+    # 1. Verify Signature
     payload_body = await request.body()
     signature_header = request.headers.get("X-Hub-Signature-256", "")
-
-    # 2. Verify Signature
-    if settings.WEBHOOK_SECRET:
-        if not verify_webhook_signature(payload_body, signature_header):
-            return {"status": "error", "message": "Invalid signature"}
+    if settings.WEBHOOK_SECRET and not verify_webhook_signature(payload_body, signature_header):
+        return {"status": "error", "message": "Invalid signature"}
     
-    # 3. Parse Pydantic Model Manually
+    # 2. Parse Payload
     try:
         payload = PRWebhookPayload.model_validate_json(payload_body)
     except Exception as e:
         logger.error(f"Payload parsing failed: {e}")
-        return {"status": "error", "message": "Invalid payload structure"}
+        return {"status": "error", "message": "Invalid payload"}
 
-    # 4. Filter Actions
+    # 3. Filter Actions
     if payload.action not in ["opened", "synchronize"]:
         return {"status": "ignored", "reason": f"Action '{payload.action}' not supported"}
 
-    # 5. Background Task
+    # 4. --- 🚀 NEW: DEDUPLICATION LOGIC ---
     repo_full_name = payload.repository.get("full_name")
     pr_number = payload.number
     
-    logger.info(f"Queueing review for {repo_full_name} #{pr_number}")
+    # Get the specific Commit SHA (Head)
+    # This ensures we re-review if the user pushes NEW code, but ignore duplicates of the SAME code.
+    head_sha = payload.pull_request.get("head", {}).get("sha", "")
+    
+    if not head_sha:
+        logger.warning("No head SHA found in payload")
+        return {"status": "ignored", "reason": "No SHA"}
+
+    # Create a unique key for this specific state of the PR
+    unique_key = f"{repo_full_name}/{pr_number}/{head_sha}"
+
+    if unique_key in PROCESSED_COMMITS:
+        logger.info(f"🛑 Skipping duplicate event for {unique_key} (Already processed)")
+        return {"status": "ignored", "reason": "Duplicate event"}
+    
+    # Mark as processed immediately
+    PROCESSED_COMMITS.add(unique_key)
+    # ----------------------------------------
+
+    # 5. Background Task
+    logger.info(f"Queueing review for {repo_full_name} #{pr_number} (SHA: {head_sha[:7]})")
     background_tasks.add_task(orchestrator.process_pr, repo_full_name, pr_number)
     
     return {"status": "accepted"}
