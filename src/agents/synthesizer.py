@@ -1,4 +1,5 @@
 import logging
+import re
 from typing import List, Dict
 from src.models import ReviewComment
 from src.config import settings
@@ -16,47 +17,56 @@ class SynthesizerAgent:
             parameters={
                 "model": settings.SYNTHESIZER_MODEL_NAME,
                 "temperature": 0.2,
-                "max_tokens": 200, # Concise summary
+                "max_tokens": 200, 
             },
         )
-        
         self.agent = Agent(
             role="Technical Writer",
             prompt_persona="You are a concise Technical Writer."
         )
 
     def create_report(self, comments: List[ReviewComment]) -> str:
-        """
-        Generates the Markdown report with Grouping and Deduplication.
-        """
         if not comments:
             return "## ✅ Lyzr Review: No Issues Found\n\nYour code looks clean!"
 
-        # 1. Downgrade Test Files
-        processed_comments = []
+        # NORMALIZE: Ensure consistent integer line numbers to avoid dedupe mismatches
+        for c in comments:
+            try:
+                c.line = int(c.line)
+            except Exception:
+                # If we can't parse the line, assign a sentinel 0 so dedupe groups it predictably
+                c.line = 0
+
+        # 1. PRE-PROCESSING PIPELINE
+        # Step A: Filter Test Files (Downgrade/Ignore)
+        filtered_comments = []
         for c in comments:
             if is_test_file(c.file):
-                if c.type == "Security": continue 
+                if c.type == "Security":
+                    # Skip security findings in test files
+                    continue 
+                # Downgrade severity for test files
                 c.severity = "Low"
-            processed_comments.append(c)
+            filtered_comments.append(c)
 
-        # 2. Smart Deduplication
-        unique_comments = self._deduplicate(processed_comments)
+        # Step B: The "Domain Firewall" (With Regex Sanitizer)
+        domain_safe_comments = self._enforce_domain_boundaries(filtered_comments)
 
-        # 3. Group Identical Comments (The "Human" Touch)
+        # Step C: The "Highlander" Deduplication (Strict One-Per-Line)
+        unique_comments = self._advanced_deduplicate(domain_safe_comments)
+
+        # 2. GROUPING & SORTING
         grouped_issues = self._group_comments(unique_comments)
-
-        # 4. Sort by Severity
+        
         severity_order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
         grouped_issues.sort(key=lambda x: severity_order.get(x['severity'], 4))
 
-        # 5. Generate Summary
+        # 3. GENERATE SUMMARY
         summary_header = self._generate_summary_header(unique_comments)
-
-        # --- FORMAT REPORT ---
+        
+        # --- RENDER MARKDOWN ---
         report_body = "### 📊 Findings Summary\n\n"
         
-        # Table: Only High/Critical Groups
         high_sev_groups = [g for g in grouped_issues if g['severity'] in ["Critical", "High"]]
         
         if high_sev_groups:
@@ -66,10 +76,11 @@ class SynthesizerAgent:
             for g in high_sev_groups:
                 icon = self._get_icon(g['type'])
                 sev_icon = self._get_severity_icon(g['severity'])
-                short_msg = g['message'].split('\n')[0].replace("|", "-")[:60]
-                lines_str = ", ".join(map(str, g['lines']))
-                # Truncate lines if too many
-                if len(g['lines']) > 3: lines_str = f"{g['lines'][0]}..{g['lines'][-1]}"
+                
+                raw_msg = g['message'].split('\n')[0].replace("|", "-")
+                short_msg = (raw_msg[:75] + '...') if len(raw_msg) > 75 else raw_msg
+                
+                lines_str = self._format_lines(g['lines'])
                 
                 report_body += f"| {sev_icon} **{g['severity']}** | {icon} {g['type']} | `{g['file']}` | {lines_str} | {short_msg} |\n"
         else:
@@ -77,10 +88,9 @@ class SynthesizerAgent:
 
         report_body += "\n"
 
-        # Detailed Breakdown
+        # DETAILS SECTION
         report_body += "<details>\n<summary><b>🔍 View Detailed Analysis & Code Fixes</b></summary>\n\n"
         
-        # Organize groups by file for display
         files_dict = {}
         for g in grouped_issues:
             if g['file'] not in files_dict: files_dict[g['file']] = []
@@ -92,8 +102,7 @@ class SynthesizerAgent:
                 icon = self._get_icon(g['type'])
                 sev_icon = self._get_severity_icon(g['severity'])
                 
-                # Format lines: "Line 10" or "Lines 10, 12, 15"
-                lines_display = ", ".join(map(str, g['lines']))
+                lines_display = self._format_lines(g['lines'])
                 line_prefix = "Line" if len(g['lines']) == 1 else "Lines"
                 
                 report_body += f"---\n"
@@ -108,46 +117,118 @@ class SynthesizerAgent:
 
         return summary_header + "\n\n" + report_body
 
-    def _deduplicate(self, comments: List[ReviewComment]) -> List[ReviewComment]:
+    def _enforce_domain_boundaries(self, comments: List[ReviewComment]) -> List[ReviewComment]:
         """
-        Removes exact duplicates and prevents Quality/Architect from reporting 
-        on lines where Security has already flagged an issue.
+        THE FIREWALL: Explicitly drops comments where an agent stepped out of line.
+        Uses Regex to clean message for stricter matching.
         """
-        seen_keys = set()
-        security_lines = set() 
-        unique = []
+        allowed = []
+        
+        # Keywords that belong ONLY to Security Agent
+        security_keywords = {
+            "sql injection", "xss", "csrf", "secret", "password", "api key", "credential", 
+            "timing attack", "vulnerability", "unsafe", "unsanitized", "sanitize", 
+            "parameterized", "raw query",
+            # Expanded set for broader coverage
+            "injection", "inject", "escape", "escaping", "unescaped",
+            "eval", "deserialize", "deserialization",
+            "tainted", "taint", "malicious", "attack", "exploit"
+        }
 
-        # Pass 1: Identify Security Lines
-        for c in comments:
-            if c.type == "Security":
-                security_lines.add((c.file, c.line))
-                
-        # Pass 2: Filter
-        for c in comments:
-            # If Security flagged this line, ignore Quality/Architect opinions on it
-            if c.type != "Security" and (c.file, c.line) in security_lines:
-                continue
-
-            norm_msg = "".join(e for e in c.message if e.isalnum()).lower()[:30]
-            sig = (c.file, c.line, c.type, norm_msg)
-            
-            if sig not in seen_keys:
-                seen_keys.add(sig)
-                unique.append(c)
-                
-        return unique
-
-    def _group_comments(self, comments: List[ReviewComment]) -> List[Dict]:
-        """
-        Merges comments that have the same File, Type, Severity, and Message content.
-        Returns a list of dicts: {'file': str, 'lines': [int], 'message': str...}
-        """
-        grouped = {}
+        # False-positive phrases that should not trigger firewall
+        false_ok = {
+            "not vulnerable", "already sanitized", "no injection", "not an injection",
+            "no vulnerability", "not exploitable", "sanitized input"
+        }
         
         for c in comments:
-            # Key: (File, Type, Severity, Normalized Message)
-            # We use a normalized message to group similar findings
-            msg_key = c.message.strip()
+            # UPGRADE: Regex cleaner (Fix #1)
+            msg_lower = (c.message or "").lower()
+            # Remove punctuation to ensure keyword matching is robust
+            clean_msg = re.sub(r"[^a-z0-9 ]", " ", msg_lower)
+            clean_msg = re.sub(r"\s+", " ", clean_msg).strip()
+
+            # If the message explicitly denies vulnerabilities, allow it
+            if any(fk in clean_msg for fk in false_ok):
+                allowed.append(c)
+                continue
+
+            # Rule 1: Quality/Architect cannot talk about Security words
+            if c.type in ["Quality", "Architect"]:
+                if any(k in clean_msg for k in security_keywords):
+                    logger.info(f"🔥 Firewall dropped {c.type} comment on {c.file}:{c.line} due to security keyword.")
+                    continue
+                    
+            allowed.append(c)
+        return allowed
+
+    def _advanced_deduplicate(self, comments: List[ReviewComment]) -> List[ReviewComment]:
+        """
+        THE HAMMER: 
+        1. Security Dominance: Security wins line conflicts.
+        2. Highlander Rule: STRICTLY one comment per line (Highest Severity wins).
+        """
+        # Sort by severity first (Critical -> Low) so the loop keeps the highest priority one
+        severity_weight = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
+        comments.sort(key=lambda x: severity_weight.get(x.severity, 4))
+
+        final_list = []
+        
+        # Tracking sets
+        security_claimed_lines = set() # (file, line)
+        all_claimed_lines = set()      # (file, line) - Global claim registry
+
+        # Pass 1: Identify Security Claims
+        for c in comments:
+            if c.type == "Security":
+                # Ensure lines normalized (safety)
+                try:
+                    ln = int(c.line)
+                except Exception:
+                    ln = 0
+                security_claimed_lines.add((c.file, ln))
+
+        # Pass 2: Filter and Assign
+        for c in comments:
+            # normalize line key
+            try:
+                ln = int(c.line)
+            except Exception:
+                ln = 0
+            line_key = (c.file, ln)
+
+            # Rule A: Security Dominance
+            # If Security claimed this line, and this is NOT security, drop it immediately.
+            if c.type != "Security" and line_key in security_claimed_lines:
+                continue
+
+            # If this is a Security comment but the line is already claimed by a higher priority Security comment, skip
+            # This ensures multiple Security comments on same line still keep only the highest-severity one (due to sorting).
+            if c.type == "Security" and line_key in all_claimed_lines:
+                continue
+
+            # Rule B: The Highlander Rule (There can be only one)
+            # If ANY agent has already claimed this line, skip this comment.
+            # Since we sorted by severity above, the first one to claim it is the most important.
+            if line_key in all_claimed_lines:
+                continue
+            
+            all_claimed_lines.add(line_key)
+            # set c.line normalized to the integer for downstream grouping / formatting
+            c.line = ln
+            final_list.append(c)
+
+        return final_list
+
+    def _group_comments(self, comments: List[ReviewComment]) -> List[Dict]:
+        grouped = {}
+        for c in comments:
+            # Group by: File + Type + Severity + Message Content (improved key)
+            # Use a normalized first-N-words approach to reduce false merges
+            normalized = re.sub(r"[^a-z0-9 ]", " ", (c.message or "").lower())
+            normalized = re.sub(r"\s+", " ", normalized).strip()
+            words = normalized.split()
+            msg_key = " ".join(words[:10])  # first 10 words as signature
             key = (c.file, c.type, c.severity, msg_key)
             
             if key not in grouped:
@@ -160,15 +241,19 @@ class SynthesizerAgent:
                     'lines': []
                 }
             grouped[key]['lines'].append(c.line)
-            
-        # Convert values to list
         return list(grouped.values())
+
+    def _format_lines(self, lines: List[int]) -> str:
+        lines = sorted(list(set(lines))) # Sort and unique
+        if not lines: return ""
+        if len(lines) > 3:
+            return f"{lines[0]}..{lines[-1]}"
+        return ", ".join(map(str, lines))
 
     def _generate_summary_header(self, comments: List[ReviewComment]) -> str:
         count = len(comments)
-        critical_count = len([c for c in comments if c.severity in ['Critical', 'High']])
-        
-        # Only use unique issues for summary generation to save tokens
+        # Only count exact 'Critical' as critical_count
+        critical_count = len([c for c in comments if c.severity == 'Critical'])
         top_issues = comments[:5]
         issues_list = "\n".join([f"- [{c.type}] {c.message}" for c in top_issues])
         
@@ -178,43 +263,20 @@ class SynthesizerAgent:
         {issues_list}
         Task: Write EXACTLY ONE sentence (max 20 words) summarizing the overall health.
         """
-        
         try:
-            task = Task(
-                name="Generate Summary",
-                model=self.llm_model,
-                agent=self.agent,
-                instructions=instruction,
-            )
-            
-            response = LinearSyncPipeline(
-                name="Summary Pipeline",
-                completion_message="Summary generated",
-                tasks=[task],
-            ).run()
-            
+            task = Task(name="Summary", model=self.llm_model, agent=self.agent, instructions=instruction)
+            response = LinearSyncPipeline(name="Summary", completion_message="Done", tasks=[task]).run()
             ai_summary = response[0]['task_output'] if isinstance(response, list) else response
-            ai_summary = ai_summary.replace("\n", " ").strip()
-            
-        except Exception as e:
-            logger.warning(f"Failed to generate AI summary: {e}")
+            ai_summary = (ai_summary or "").replace("\n", " ").strip()
+            # Fail-safe: only keep first sentence, max 120 chars
+            ai_summary = re.split(r"[.!?]", ai_summary)[0][:120].strip()
+        except Exception:
             ai_summary = "Review completed."
 
         return f"## 🤖 Lyzr Review Report\n\n**Total Issues:** {count} | **Critical Issues:** {critical_count}\n\n> {ai_summary}\n"
 
     def _get_icon(self, type_: str) -> str:
-        icons = {
-            "Security": "🛡️",
-            "Quality": "🧠",
-            "Architect": "🏗️",
-        }
-        return icons.get(type_, "📝")
+        return {"Security": "🛡️", "Quality": "🧠", "Architect": "🏗️"}.get(type_, "📝")
 
     def _get_severity_icon(self, severity: str) -> str:
-        icons = {
-            "Critical": "🔴",
-            "High": "🟠",
-            "Medium": "🟡",
-            "Low": "🔵"
-        }
-        return icons.get(severity, "⚪")
+        return {"Critical": "🔴", "High": "🟠", "Medium": "🟡", "Low": "🔵"}.get(severity, "⚪")
