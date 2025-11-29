@@ -115,8 +115,8 @@ graph TD
 ### 1. Clone Repo
 
 ```bash
-git clone <your-repo-url>
-cd lyzr-pr-agent
+git clone https://github.com/sachinsr11/lyzr-challenge.git
+cd lyzr-challenge
 ```
 
 ### 2. Install Dependencies
