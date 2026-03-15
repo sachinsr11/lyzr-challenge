@@ -15,13 +15,13 @@ logger = logging.getLogger(__name__)
 
 def clean_json_output(raw_text: str) -> str:
     """
-    Strip markdown code blocks and other LLM artifacts from JSON output.
-    
-    Args:
-        raw_text: Raw text from LLM that should contain JSON
-        
-    Returns:
-        Cleaned JSON string ready for parsing
+    Normalize LLM output by removing markdown fences and common preamble text.
+
+    Input (sample):
+    - raw_text: "```json\n[{\"file\":\"a.py\"}]\n```"
+
+    Output (sample):
+    - "[{\"file\":\"a.py\"}]"
     """
     if not raw_text:
         return "[]"
@@ -39,13 +39,13 @@ def clean_json_output(raw_text: str) -> str:
 
 def extract_line_numbers_from_hunk(hunk_header: str) -> Tuple[int, int]:
     """
-    Extract starting line numbers from a diff hunk header.
-    
-    Args:
-        hunk_header: String like "@@ -10,5 +12,7 @@ function_name"
-        
-    Returns:
-        Tuple of (old_start_line, new_start_line)
+    Parse git hunk header and return old/new starting line numbers.
+
+    Input (sample):
+    - hunk_header: "@@ -10,5 +12,7 @@ def foo"
+
+    Output (sample):
+    - (10, 12)
     """
     # Match @@ -old_start,old_count +new_start,new_count @@
     match = re.search(r'@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@', hunk_header)
@@ -64,13 +64,13 @@ def extract_line_numbers_from_hunk(hunk_header: str) -> Tuple[int, int]:
 
 def parse_diff_hunks(diff_content: str) -> List[dict]:
     """
-    Parse diff content into individual hunks with line number tracking.
-    
-    Args:
-        diff_content: Raw diff text for a single file
-        
-    Returns:
-        List of dicts with 'start_line', 'content', 'added_lines', 'removed_lines'
+    Split one file-level diff into hunk dictionaries with tracked line metadata.
+
+    Input (sample):
+    - diff_content: "@@ -1 +1 @@\n-old\n+new"
+
+    Output (sample):
+    - [{"start_line": 1, "content": "@@ -1 +1 @@\\n-old\\n+new\\n", "added_lines": [1], "removed_lines": [1]}]
     """
     hunks = []
     lines = diff_content.split('\n')
@@ -115,7 +115,15 @@ def parse_diff_hunks(diff_content: str) -> List[dict]:
 
 
 def is_binary_file(filename: str) -> bool:
-    """Check if a file is likely binary based on extension."""
+    """
+    Detect whether a filename likely points to a binary/non-source asset.
+
+    Input (sample):
+    - filename: "assets/logo.png"
+
+    Output (sample):
+    - True
+    """
     binary_extensions = {
         '.png', '.jpg', '.jpeg', '.gif', '.svg', '.ico', 
         '.woff', '.woff2', '.ttf', '.eot', '.otf',
@@ -130,13 +138,13 @@ def is_binary_file(filename: str) -> bool:
 
 def validate_json_structure(json_str: str) -> bool:
     """
-    Validate that JSON string is parseable and matches expected structure.
-    
-    Args:
-        json_str: JSON string to validate
-        
-    Returns:
-        True if valid, False otherwise
+    Validate that JSON is a list of review-comment-like objects with required keys.
+
+    Input (sample):
+    - json_str: "[{\"file\":\"a.py\",\"line\":2,\"type\":\"Quality\",\"severity\":\"Low\",\"message\":\"...\"}]"
+
+    Output (sample):
+    - True
     """
     try:
         data = json.loads(json_str)
@@ -167,8 +175,14 @@ def validate_json_structure(json_str: str) -> bool:
 
 def verify_webhook_signature(payload_body: bytes, signature_header: str) -> bool:
     """
-    Verify GitHub webhook signature using HMAC-SHA256.
-    Returns True if signature is valid, False otherwise.
+    Verify GitHub webhook payload integrity using HMAC-SHA256 signature.
+
+    Input (sample):
+    - payload_body: b'{"action":"opened"}'
+    - signature_header: "sha256=ab12cd..."
+
+    Output (sample):
+    - True when signature matches, otherwise False
     """
     if not settings.WEBHOOK_SECRET:
         logger.warning("WEBHOOK_SECRET not configured, skipping signature verification")
@@ -194,7 +208,13 @@ def verify_webhook_signature(payload_body: bytes, signature_header: str) -> bool
 
 def is_test_file(filename: str) -> bool:
     """
-    Detects if a file is a test file to allow relaxed rules.
+    Detect whether a path looks like a test file for relaxed policy handling.
+
+    Input (sample):
+    - filename: "tests/test_auth.py"
+
+    Output (sample):
+    - True
     """
     fname = filename.lower()
     return (

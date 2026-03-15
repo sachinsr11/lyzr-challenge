@@ -27,6 +27,20 @@ PROCESSED_COMMITS = set()
 
 @app.get("/health", status_code=status.HTTP_200_OK)
 def health_check():
+    """
+    Return a lightweight health status for service and key integrations.
+
+    Input (sample):
+    - HTTP GET /health
+
+    Output (sample):
+    {
+        "status": "active",
+        "service": "Lyzr PR Agent",
+        "github_configured": true,
+        "ai_configured": true
+    }
+    """
     return {
         "status": "active", 
         "service": settings.APP_NAME,
@@ -36,6 +50,29 @@ def health_check():
 
 @app.post("/review-diff", response_model=AnalysisReport)
 def manual_diff_review(request: RawDiffRequest):
+    """
+    Analyze a raw git diff directly and return structured review findings.
+
+    Input (sample):
+    {
+        "diff_text": "diff --git a/app.py b/app.py\\n@@ -1 +1 @@\\n-print('x')\\n+print('y')"
+    }
+
+    Output (sample):
+    {
+        "summary": "## ...",
+        "comments": [
+            {
+                "file": "app.py",
+                "line": 1,
+                "type": "Quality",
+                "severity": "Low",
+                "message": "...",
+                "suggestion": "..."
+            }
+        ]
+    }
+    """
     if not request.diff_text.strip():
         raise HTTPException(status_code=400, detail="Diff text cannot be empty")
     try:
@@ -51,7 +88,24 @@ async def github_webhook(
     background_tasks: BackgroundTasks
 ):
     """
-    GitHub Webhook Listener with Deduplication.
+        Validate and accept GitHub PR webhook events, then queue async PR review.
+
+        Input (sample):
+        - Headers:
+            X-GitHub-Event: pull_request
+            X-Hub-Signature-256: sha256=<hmac>
+        - Body:
+            {
+                "action": "opened",
+                "number": 42,
+                "repository": {"full_name": "org/repo"},
+                "pull_request": {"head": {"sha": "abc123..."}}
+            }
+
+        Output (sample):
+        - {"status": "accepted"}
+        - {"status": "ignored", "reason": "Duplicate event"}
+        - {"status": "error", "message": "Invalid signature"}
     """
     # 0. Validate GitHub Event Type
     github_event = request.headers.get("X-GitHub-Event", "")

@@ -13,6 +13,15 @@ logger = logging.getLogger(__name__)
 
 class QualityAgent:
     def __init__(self):
+        """
+        Initialize reliability-focused quality analysis model and agent persona.
+
+        Input (sample):
+        - None (reads settings.GOOGLE_API_KEY and QUALITY_MODEL_NAME)
+
+        Output (sample):
+        - QualityAgent instance with llm_model and Agent(role="Senior Developer").
+        """
         # Use CustomLiteLLM for Gemini API routing
         self.llm_model = CustomLiteLLM(
             api_key=settings.GOOGLE_API_KEY,
@@ -30,7 +39,16 @@ class QualityAgent:
 
     def analyze(self, content: str, filename: str, start_line: int) -> list[ReviewComment]:
         """
-        Reviews code logic and performance.
+        Analyze one diff hunk for logic/reliability issues and return findings.
+
+        Input (sample):
+        - content: "+ result = total / count"
+        - filename: "src/service.py"
+        - start_line: 80
+
+        Output (sample):
+        - [ReviewComment(file="src/service.py", line=81, type="Quality", severity="High", message="Possible division by zero", suggestion="Guard count == 0")]
+        - [] when no issues or invalid LLM output
         """
         logger.info(f"Quality check on: {filename}")
 

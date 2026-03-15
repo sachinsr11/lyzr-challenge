@@ -23,7 +23,13 @@ IGNORED_FILES = {'yarn.lock', 'package-lock.json', 'poetry.lock', 'Pipfile.lock'
 class ReviewOrchestrator:
     def __init__(self):
         """
-        Initialize all Tools and Agents.
+        Initialize GitHub tool client and all review/synthesis agents.
+
+        Input (sample):
+        - None (called as ReviewOrchestrator())
+
+        Output (sample):
+        - Initialized instance with gh_client, security, quality, architect, synthesizer.
         """
         # Instantiate GitHubClient (handles its own auth via src.config)
         self.gh_client = GitHubClient()
@@ -36,8 +42,13 @@ class ReviewOrchestrator:
 
     def process_diff_text(self, diff_text: str) -> AnalysisReport:
         """
-        CORE LOGIC: Takes raw text -> Returns Analysis Report.
-        This is the shared brain used by both Manual Diff endpoint and Webhook logic.
+        Run full review flow on raw diff text and return aggregated report.
+
+        Input (sample):
+        - diff_text: "diff --git a/a.py b/a.py\n@@ -1 +1 @@\n-x\n+y"
+
+        Output (sample):
+        - AnalysisReport(summary="## ...", comments=[ReviewComment(...), ...])
         """
         logger.info("Starting analysis of diff text...")
 
@@ -115,7 +126,14 @@ class ReviewOrchestrator:
 
     def process_pr(self, repo_name: str, pr_number: int):
         """
-        WEBHOOK ENTRY POINT: Handles the GitHub lifecycle (Fetch -> Analyze -> Post).
+        Fetch PR diff from GitHub, analyze it, and post summary comment back to PR.
+
+        Input (sample):
+        - repo_name: "org/repo"
+        - pr_number: 42
+
+        Output (sample):
+        - None (side effects: GitHub API call to create issue comment)
         """
         try:
             logger.info(f"Processing PR #{pr_number} in {repo_name}")
@@ -148,6 +166,18 @@ class ReviewOrchestrator:
                 logger.error("Failed to post error comment to PR")
 
     def _split_diff_into_chunks(self, diff_text: str) -> List[Dict[str, str]]:
+        """
+        Split full git diff into per-file chunks and filter ignored/unknown entries.
+
+        Input (sample):
+        - diff_text: "diff --git a/a.py b/a.py ... diff --git a/b.py b/b.py ..."
+
+        Output (sample):
+        - [
+                {"filename": "a.py", "content": "...", "hunks": [...]},
+                {"filename": "b.py", "content": "...", "hunks": [...]}
+            ]
+        """
         chunks = []
         if not diff_text: return chunks
 
@@ -175,6 +205,20 @@ class ReviewOrchestrator:
         return [c for c in chunks if c['filename'] not in ["unknown", "ignored"]]
 
     def _parse_chunk(self, chunk_text: str) -> dict:
+        """
+        Parse one file-level diff chunk into filename, hunk list, and file metadata.
+
+        Input (sample):
+        - chunk_text: "diff --git a/src/a.py b/src/a.py\\n@@ -1 +1 @@\\n-old\\n+new"
+
+        Output (sample):
+        - {
+                "filename": "src/a.py",
+                "content": "...",
+                "hunks": [{"start_line": 1, "content": "...", ...}],
+                "metadata": {"is_rename": false, "is_new_file": false, "is_deleted": false}
+            }
+        """
         # Extract filename from diff header
         # Standard format: "diff --git a/src/main.py b/src/main.py"
         # New files: "diff --git a/dev/null b/src/new_file.py"

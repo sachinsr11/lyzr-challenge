@@ -14,7 +14,13 @@ logger = logging.getLogger(__name__)
 class ArchitectAgent:
     def __init__(self):
         """
-        Initialize the Lyzr Agent with the Architect persona.
+        Initialize architecture-focused analysis model and architect persona agent.
+
+        Input (sample):
+        - None (reads settings.GOOGLE_API_KEY and ARCHITECT_MODEL_NAME)
+
+        Output (sample):
+        - ArchitectAgent instance with configured llm_model and Agent(role="Software Architect").
         """
         # Use CustomLiteLLM for Gemini API routing
         self.llm_model = CustomLiteLLM(
@@ -33,7 +39,16 @@ class ArchitectAgent:
 
     def analyze(self, content: str, filename: str, start_line: int) -> list[ReviewComment]:
         """
-        Runs the Lyzr Pipeline to detect architectural issues in the file chunk.
+        Analyze one diff hunk for maintainability and architectural-pattern issues.
+
+        Input (sample):
+        - content: "+ global_state['db'] = connect()"
+        - filename: "src/main.py"
+        - start_line: 30
+
+        Output (sample):
+        - [ReviewComment(file="src/main.py", line=31, type="Architect", severity="Medium", message="Global mutable state introduced", suggestion="Inject dependency via constructor")]
+        - [] when no architectural concerns or parse/runtime failure
         """
         logger.info(f"Architect analyzing: {filename}")
 

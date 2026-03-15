@@ -8,7 +8,13 @@ logger = logging.getLogger(__name__)
 class GitHubClient:
     def __init__(self):
         """
-        Initialize the GitHub client using the token from settings.
+        Initialize authenticated PyGithub client from application settings.
+
+        Input (sample):
+        - None (reads settings.GITHUB_TOKEN)
+
+        Output (sample):
+        - self.client: Github("<token>") when configured, else None.
         """
         if not settings.GITHUB_TOKEN:
             logger.warning("GITHUB_TOKEN not set. GitHub operations will fail.")
@@ -18,7 +24,14 @@ class GitHubClient:
 
     def get_pr_diff(self, repo_name: str, pr_number: int) -> str:
         """
-        Fetches the raw diff string for a specific Pull Request.
+        Fetch raw unified diff text for a specific pull request.
+
+        Input (sample):
+        - repo_name: "org/repo"
+        - pr_number: 42
+
+        Output (sample):
+        - "diff --git a/src/a.py b/src/a.py\n@@ -1 +1 @@\n-old\n+new"
         """
         if not self.client:
             raise ValueError("GitHub Client not initialized")
@@ -46,8 +59,15 @@ class GitHubClient:
 
     def post_comment(self, repo_name: str, pr_number: int, body: str):
         """
-        Posts a general comment to the PR timeline.
-        No retry logic - simple fire and forget.
+        Post a plain timeline comment on a pull request.
+
+        Input (sample):
+        - repo_name: "org/repo"
+        - pr_number: 42
+        - body: "## Lyzr Review Report\n..."
+
+        Output (sample):
+        - None (side effect: comment created in GitHub PR timeline)
         """
         if not self.client:
             logger.error("Cannot post comment: GitHub Client not initialized")

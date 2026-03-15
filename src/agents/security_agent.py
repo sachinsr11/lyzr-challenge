@@ -13,6 +13,15 @@ logger = logging.getLogger(__name__)
 
 class SecurityAgent:
     def __init__(self):
+        """
+        Initialize security-review LLM model and security persona agent.
+
+        Input (sample):
+        - None (reads settings.GOOGLE_API_KEY and SECURITY_MODEL_NAME)
+
+        Output (sample):
+        - SecurityAgent instance with configured llm_model and Agent(role="Security Auditor").
+        """
         # Use CustomLiteLLM for Gemini API routing
         self.llm_model = CustomLiteLLM(
             api_key=settings.GOOGLE_API_KEY,
@@ -30,7 +39,16 @@ class SecurityAgent:
 
     def analyze(self, content: str, filename: str, start_line: int) -> list[ReviewComment]:
         """
-        Scans the code chunk for vulnerabilities using Lyzr.
+        Analyze one diff hunk for security vulnerabilities and return typed findings.
+
+        Input (sample):
+        - content: "+ query = f\"SELECT * FROM users WHERE id={uid}\""
+        - filename: "src/db.py"
+        - start_line: 120
+
+        Output (sample):
+        - [ReviewComment(file="src/db.py", line=125, type="Security", severity="High", message="...", suggestion="...")]
+        - [] when no issues or parse/runtime failure
         """
         logger.info(f"Security scan on: {filename}")
 

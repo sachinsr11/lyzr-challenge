@@ -12,6 +12,15 @@ logger = logging.getLogger(__name__)
 
 class SynthesizerAgent:
     def __init__(self):
+        """
+        Initialize report-synthesis model and concise technical-writer persona.
+
+        Input (sample):
+        - None (reads settings.GOOGLE_API_KEY and SYNTHESIZER_MODEL_NAME)
+
+        Output (sample):
+        - SynthesizerAgent instance with llm_model and summary Agent.
+        """
         self.llm_model = CustomLiteLLM(
             api_key=settings.GOOGLE_API_KEY,
             parameters={
@@ -26,6 +35,15 @@ class SynthesizerAgent:
         )
 
     def create_report(self, comments: List[ReviewComment]) -> str:
+        """
+        Convert raw review comments into a deduplicated, policy-filtered markdown report.
+
+        Input (sample):
+        - comments: [ReviewComment(file="src/a.py", line=10, type="Quality", severity="High", message="...", suggestion="...")]
+
+        Output (sample):
+        - "## 🤖 Lyzr Review Report\n\n**Total Issues:** 1 | **Critical Issues:** 0\n..."
+        """
         if not comments:
             return "## ✅ Lyzr Review: No Issues Found\n\nYour code looks clean!"
 
@@ -119,8 +137,13 @@ class SynthesizerAgent:
 
     def _enforce_domain_boundaries(self, comments: List[ReviewComment]) -> List[ReviewComment]:
         """
-        THE FIREWALL: Explicitly drops comments where an agent stepped out of line.
-        Uses Regex to clean message for stricter matching.
+        Drop findings where agent scope is violated (for example non-security agents reporting security topics).
+
+        Input (sample):
+        - comments: [ReviewComment(type="Quality", message="SQL injection risk", ...)]
+
+        Output (sample):
+        - Filtered list excluding out-of-domain comments
         """
         allowed = []
         
@@ -164,9 +187,13 @@ class SynthesizerAgent:
 
     def _advanced_deduplicate(self, comments: List[ReviewComment]) -> List[ReviewComment]:
         """
-        THE HAMMER: 
-        1. Security Dominance: Security wins line conflicts.
-        2. Highlander Rule: STRICTLY one comment per line (Highest Severity wins).
+        Deduplicate findings by enforcing one winner per file line with severity priority and security dominance.
+
+        Input (sample):
+        - comments: [Security@a.py:10 High, Quality@a.py:10 Medium, Architect@a.py:12 Low]
+
+        Output (sample):
+        - [Security@a.py:10 High, Architect@a.py:12 Low]
         """
         # Sort by severity first (Critical -> Low) so the loop keeps the highest priority one
         severity_weight = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
@@ -221,6 +248,15 @@ class SynthesizerAgent:
         return final_list
 
     def _group_comments(self, comments: List[ReviewComment]) -> List[Dict]:
+        """
+        Group similar comments by file/type/severity and normalized message signature.
+
+        Input (sample):
+        - comments: [Comment(file="a.py", message="Use parameterized query", line=3), Comment(file="a.py", message="Use parameterized query now", line=8)]
+
+        Output (sample):
+        - [{"file": "a.py", "type": "Security", "severity": "High", "message": "...", "suggestion": "...", "lines": [3, 8]}]
+        """
         grouped = {}
         for c in comments:
             # Group by: File + Type + Severity + Message Content (improved key)
@@ -244,6 +280,16 @@ class SynthesizerAgent:
         return list(grouped.values())
 
     def _format_lines(self, lines: List[int]) -> str:
+        """
+        Format line numbers for report display using compact range rules.
+
+        Input (sample):
+        - lines: [2, 3, 4, 10]
+
+        Output (sample):
+        - "2..10" (for more than 3 unique lines)
+        - "2, 3" (for short lists)
+        """
         lines = sorted(list(set(lines))) # Sort and unique
         if not lines: return ""
         if len(lines) > 3:
@@ -251,6 +297,15 @@ class SynthesizerAgent:
         return ", ".join(map(str, lines))
 
     def _generate_summary_header(self, comments: List[ReviewComment]) -> str:
+        """
+        Generate top markdown header with issue counts and one-sentence executive summary.
+
+        Input (sample):
+        - comments: [ReviewComment(severity="Critical", message="..."), ReviewComment(severity="Low", message="...")]
+
+        Output (sample):
+        - "## 🤖 Lyzr Review Report\n\n**Total Issues:** 2 | **Critical Issues:** 1\n\n> ..."
+        """
         count = len(comments)
         # Only count exact 'Critical' as critical_count
         critical_count = len([c for c in comments if c.severity == 'Critical'])
@@ -276,7 +331,25 @@ class SynthesizerAgent:
         return f"## 🤖 Lyzr Review Report\n\n**Total Issues:** {count} | **Critical Issues:** {critical_count}\n\n> {ai_summary}\n"
 
     def _get_icon(self, type_: str) -> str:
+        """
+        Map finding type to a display icon for markdown rendering.
+
+        Input (sample):
+        - type_: "Security"
+
+        Output (sample):
+        - "🛡️"
+        """
         return {"Security": "🛡️", "Quality": "🧠", "Architect": "🏗️"}.get(type_, "📝")
 
     def _get_severity_icon(self, severity: str) -> str:
+        """
+        Map severity label to a visual icon used in report tables/details.
+
+        Input (sample):
+        - severity: "High"
+
+        Output (sample):
+        - "🟠"
+        """
         return {"Critical": "🔴", "High": "🟠", "Medium": "🟡", "Low": "🔵"}.get(severity, "⚪")

@@ -7,9 +7,14 @@ logger = logging.getLogger(__name__)
 class CustomLiteLLM(AIModel):
     def __init__(self, api_key, parameters):
         """
-        Official Extension Pattern:
-        We inherit from AIModel but handle initialization manually 
-        because the base class does not accept arguments in this version.
+        Create LiteLLM-backed model adapter used by Lyzr tasks.
+
+        Input (sample):
+        - api_key: "AIza..."
+        - parameters: {"model": "gemini/gemini-2.5-flash-lite", "temperature": 0.2, "max_tokens": 2000}
+
+        Output (sample):
+        - Initialized CustomLiteLLM instance with stored credentials/config.
         """
         # FIX: Removed arguments from super().__init__()
         self.api_key = api_key
@@ -17,7 +22,16 @@ class CustomLiteLLM(AIModel):
 
     def generate_text(self, task_id=None, system_persona=None, prompt=None):
         """
-        Required method for Lyzr Automata to get text from an LLM.
+        Generate chat completion text for a single task prompt.
+
+        Input (sample):
+        - task_id: "security-task-1"
+        - system_persona: "You are a Security Auditor"
+        - prompt: "Analyze this diff hunk..."
+
+        Output (sample):
+        - "[{\"file\": \"app.py\", \"line\": 12, ...}]"
+        - "" (empty string on provider/runtime failure)
         """
         try:
             model_name = self.parameters.get("model", "gemini/gemini-1.5-flash")
@@ -46,5 +60,14 @@ class CustomLiteLLM(AIModel):
             return ""
     
     def generate_image(self, task_id=None, prompt=None):
-        """Required abstract method, but we don't use it."""
+        """
+        Placeholder image generation method required by abstract base class.
+
+        Input (sample):
+        - task_id: "img-1"
+        - prompt: "Generate architecture diagram"
+
+        Output (sample):
+        - Raises NotImplementedError("Image generation not supported.")
+        """
         raise NotImplementedError("Image generation not supported.")
