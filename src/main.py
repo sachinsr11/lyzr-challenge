@@ -7,22 +7,15 @@ from src.models import RawDiffRequest, PRWebhookPayload, AnalysisReport
 from src.orchestrator import ReviewOrchestrator
 from src.utils import verify_webhook_signature
 
-# --- Setup Logging ---
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# --- Initialize App ---
 app = FastAPI(
     title=settings.APP_NAME, 
     description="Automated Pull Request Review Agent"
 )
 
-# Global Orchestrator Instance
 orchestrator = ReviewOrchestrator()
-
-# --- 🚀 NEW: IN-MEMORY CACHE TO PREVENT DUPLICATES ---
-# Stores the SHA of commits we have already analyzed.
-# Format: { "repo_name/pr_number/commit_sha" }
 PROCESSED_COMMITS = set()
 
 @app.get("/health", status_code=status.HTTP_200_OK)
@@ -129,28 +122,22 @@ async def github_webhook(
     if payload.action not in ["opened", "synchronize"]:
         return {"status": "ignored", "reason": f"Action '{payload.action}' not supported"}
 
-    # 4. --- 🚀 NEW: DEDUPLICATION LOGIC ---
+    # 4. Deduplication
     repo_full_name = payload.repository.get("full_name")
     pr_number = payload.number
-    
-    # Get the specific Commit SHA (Head)
-    # This ensures we re-review if the user pushes NEW code, but ignore duplicates of the SAME code.
     head_sha = payload.pull_request.get("head", {}).get("sha", "")
     
     if not head_sha:
         logger.warning("No head SHA found in payload")
         return {"status": "ignored", "reason": "No SHA"}
 
-    # Create a unique key for this specific state of the PR
     unique_key = f"{repo_full_name}/{pr_number}/{head_sha}"
 
     if unique_key in PROCESSED_COMMITS:
         logger.info(f"🛑 Skipping duplicate event for {unique_key} (Already processed)")
         return {"status": "ignored", "reason": "Duplicate event"}
     
-    # Mark as processed immediately
     PROCESSED_COMMITS.add(unique_key)
-    # ----------------------------------------
 
     # 5. Background Task
     logger.info(f"Queueing review for {repo_full_name} #{pr_number} (SHA: {head_sha[:7]})")

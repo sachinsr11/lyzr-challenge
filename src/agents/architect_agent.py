@@ -22,12 +22,11 @@ class ArchitectAgent:
         Output (sample):
         - ArchitectAgent instance with configured llm_model and Agent(role="Software Architect").
         """
-        # Use CustomLiteLLM for Gemini API routing
         self.llm_model = CustomLiteLLM(
             api_key=settings.GOOGLE_API_KEY,
             parameters={
                 "model": settings.ARCHITECT_MODEL_NAME,
-                "temperature": 0.2,  # Low temp for deterministic analysis
+                "temperature": 0.2,
                 "max_tokens": 2000,
             },
         )
@@ -52,7 +51,7 @@ class ArchitectAgent:
         """
         logger.info(f"Architect analyzing: {filename}")
 
-        # 1. Prepare Instruction with strict JSON schema enforcement
+        # 1. Prepare instruction
         instruction = f"""
         Analyze the following DIFF HUNK from '{filename}'.
 
@@ -103,22 +102,15 @@ class ArchitectAgent:
                 tasks=[task],
             ).run()
             
-            # 4. Parse Output
-            # Extract text from response (Lyzr returns a dict or object depending on version)
-            # Assuming response is a list of task outputs, take the first one
+            # 4. Parse output
             raw_output = response[0]['task_output'] if isinstance(response, list) else response
-            
-            # Clean markdown code blocks if present
             cleaned_output = clean_json_output(raw_output)
             
-            # Validate before parsing
             if not validate_json_structure(cleaned_output):
                 logger.error(f"Invalid JSON structure from Architect Agent for {filename}")
                 return []
             
             json_data = json.loads(cleaned_output)
-            
-            # 5. Convert to Models
             return [ReviewComment(**item) for item in json_data]
 
         except json.JSONDecodeError:

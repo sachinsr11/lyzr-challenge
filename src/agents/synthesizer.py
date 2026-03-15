@@ -47,42 +47,37 @@ class SynthesizerAgent:
         if not comments:
             return "## ✅ Lyzr Review: No Issues Found\n\nYour code looks clean!"
 
-        # NORMALIZE: Ensure consistent integer line numbers to avoid dedupe mismatches
         for c in comments:
             try:
                 c.line = int(c.line)
             except Exception:
-                # If we can't parse the line, assign a sentinel 0 so dedupe groups it predictably
                 c.line = 0
 
-        # 1. PRE-PROCESSING PIPELINE
-        # Step A: Filter Test Files (Downgrade/Ignore)
+        # 1. Pre-processing pipeline
+        # Step A: Filter test files
         filtered_comments = []
         for c in comments:
             if is_test_file(c.file):
                 if c.type == "Security":
-                    # Skip security findings in test files
-                    continue 
-                # Downgrade severity for test files
+                    continue
                 c.severity = "Low"
             filtered_comments.append(c)
 
-        # Step B: The "Domain Firewall" (With Regex Sanitizer)
+        # Step B: Domain firewall
         domain_safe_comments = self._enforce_domain_boundaries(filtered_comments)
 
-        # Step C: The "Highlander" Deduplication (Strict One-Per-Line)
+        # Step C: Deduplication
         unique_comments = self._advanced_deduplicate(domain_safe_comments)
 
-        # 2. GROUPING & SORTING
+        # 2. Grouping & sorting
         grouped_issues = self._group_comments(unique_comments)
         
         severity_order = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
         grouped_issues.sort(key=lambda x: severity_order.get(x['severity'], 4))
 
-        # 3. GENERATE SUMMARY
+        # 3. Generate summary
         summary_header = self._generate_summary_header(unique_comments)
         
-        # --- RENDER MARKDOWN ---
         report_body = "### 📊 Findings Summary\n\n"
         
         high_sev_groups = [g for g in grouped_issues if g['severity'] in ["Critical", "High"]]
@@ -106,7 +101,7 @@ class SynthesizerAgent:
 
         report_body += "\n"
 
-        # DETAILS SECTION
+
         report_body += "<details>\n<summary><b>🔍 View Detailed Analysis & Code Fixes</b></summary>\n\n"
         
         files_dict = {}
@@ -171,12 +166,11 @@ class SynthesizerAgent:
             clean_msg = re.sub(r"[^a-z0-9 ]", " ", msg_lower)
             clean_msg = re.sub(r"\s+", " ", clean_msg).strip()
 
-            # If the message explicitly denies vulnerabilities, allow it
             if any(fk in clean_msg for fk in false_ok):
                 allowed.append(c)
                 continue
 
-            # Rule 1: Quality/Architect cannot talk about Security words
+            # Rule 1: Quality/Architect cannot report security keywords
             if c.type in ["Quality", "Architect"]:
                 if any(k in clean_msg for k in security_keywords):
                     logger.info(f"🔥 Firewall dropped {c.type} comment on {c.file}:{c.line} due to security keyword.")
@@ -195,53 +189,42 @@ class SynthesizerAgent:
         Output (sample):
         - [Security@a.py:10 High, Architect@a.py:12 Low]
         """
-        # Sort by severity first (Critical -> Low) so the loop keeps the highest priority one
         severity_weight = {"Critical": 0, "High": 1, "Medium": 2, "Low": 3}
         comments.sort(key=lambda x: severity_weight.get(x.severity, 4))
 
         final_list = []
-        
-        # Tracking sets
-        security_claimed_lines = set() # (file, line)
-        all_claimed_lines = set()      # (file, line) - Global claim registry
+        security_claimed_lines = set()
+        all_claimed_lines = set()
 
-        # Pass 1: Identify Security Claims
+        # Pass 1: Identify security claims
         for c in comments:
             if c.type == "Security":
-                # Ensure lines normalized (safety)
                 try:
                     ln = int(c.line)
                 except Exception:
                     ln = 0
                 security_claimed_lines.add((c.file, ln))
 
-        # Pass 2: Filter and Assign
+        # Pass 2: Filter and assign
         for c in comments:
-            # normalize line key
             try:
                 ln = int(c.line)
             except Exception:
                 ln = 0
             line_key = (c.file, ln)
 
-            # Rule A: Security Dominance
-            # If Security claimed this line, and this is NOT security, drop it immediately.
+            # Rule A: Security dominance
             if c.type != "Security" and line_key in security_claimed_lines:
                 continue
 
-            # If this is a Security comment but the line is already claimed by a higher priority Security comment, skip
-            # This ensures multiple Security comments on same line still keep only the highest-severity one (due to sorting).
             if c.type == "Security" and line_key in all_claimed_lines:
                 continue
 
-            # Rule B: The Highlander Rule (There can be only one)
-            # If ANY agent has already claimed this line, skip this comment.
-            # Since we sorted by severity above, the first one to claim it is the most important.
+            # Rule B: Highlander rule — one comment per line
             if line_key in all_claimed_lines:
                 continue
             
             all_claimed_lines.add(line_key)
-            # set c.line normalized to the integer for downstream grouping / formatting
             c.line = ln
             final_list.append(c)
 
@@ -259,12 +242,10 @@ class SynthesizerAgent:
         """
         grouped = {}
         for c in comments:
-            # Group by: File + Type + Severity + Message Content (improved key)
-            # Use a normalized first-N-words approach to reduce false merges
             normalized = re.sub(r"[^a-z0-9 ]", " ", (c.message or "").lower())
             normalized = re.sub(r"\s+", " ", normalized).strip()
             words = normalized.split()
-            msg_key = " ".join(words[:10])  # first 10 words as signature
+            msg_key = " ".join(words[:10])
             key = (c.file, c.type, c.severity, msg_key)
             
             if key not in grouped:
@@ -290,7 +271,7 @@ class SynthesizerAgent:
         - "2..10" (for more than 3 unique lines)
         - "2, 3" (for short lists)
         """
-        lines = sorted(list(set(lines))) # Sort and unique
+        lines = sorted(list(set(lines)))
         if not lines: return ""
         if len(lines) > 3:
             return f"{lines[0]}..{lines[-1]}"
@@ -307,7 +288,6 @@ class SynthesizerAgent:
         - "## 🤖 Lyzr Review Report\n\n**Total Issues:** 2 | **Critical Issues:** 1\n\n> ..."
         """
         count = len(comments)
-        # Only count exact 'Critical' as critical_count
         critical_count = len([c for c in comments if c.severity == 'Critical'])
         top_issues = comments[:5]
         issues_list = "\n".join([f"- [{c.type}] {c.message}" for c in top_issues])
@@ -323,7 +303,6 @@ class SynthesizerAgent:
             response = LinearSyncPipeline(name="Summary", completion_message="Done", tasks=[task]).run()
             ai_summary = response[0]['task_output'] if isinstance(response, list) else response
             ai_summary = (ai_summary or "").replace("\n", " ").strip()
-            # Fail-safe: only keep first sentence, max 120 chars
             ai_summary = re.split(r"[.!?]", ai_summary)[0][:120].strip()
         except Exception:
             ai_summary = "Review completed."

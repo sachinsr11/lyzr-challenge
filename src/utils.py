@@ -26,14 +26,9 @@ def clean_json_output(raw_text: str) -> str:
     if not raw_text:
         return "[]"
     
-    # Remove markdown code blocks (```json ... ``` or ``` ... ```)
     text = re.sub(r'```json\s*', '', raw_text)
     text = re.sub(r'```\s*', '', text)
-    
-    # Remove common LLM preambles
     text = re.sub(r'^(Here is|Here\'s|The output is):?\s*', '', text, flags=re.IGNORECASE)
-    
-    # Strip whitespace
     return text.strip()
 
 
@@ -47,19 +42,17 @@ def extract_line_numbers_from_hunk(hunk_header: str) -> Tuple[int, int]:
     Output (sample):
     - (10, 12)
     """
-    # Match @@ -old_start,old_count +new_start,new_count @@
     match = re.search(r'@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@', hunk_header)
     if match:
         old_start = int(match.group(1))
         new_start = int(match.group(2))
         return (old_start, new_start)
     
-    # Fallback for single-line changes @@ -10 +12 @@
     fallback_match = re.search(r'@@ -(\d+) \+(\d+) @@', hunk_header)
     if fallback_match:
         return (int(fallback_match.group(1)), int(fallback_match.group(2)))
     
-    return (1, 1)  # Default fallback
+    return (1, 1)
 
 
 def parse_diff_hunks(diff_content: str) -> List[dict]:
@@ -79,7 +72,6 @@ def parse_diff_hunks(diff_content: str) -> List[dict]:
     current_new_line = 1
     
     for line in lines:
-        # New hunk starts
         if line.startswith('@@'):
             if current_hunk:
                 hunks.append(current_hunk)
@@ -96,18 +88,14 @@ def parse_diff_hunks(diff_content: str) -> List[dict]:
         elif current_hunk:
             current_hunk['content'] += line + '\n'
             
-            # Track added lines (for reporting issues on the correct line)
             if line.startswith('+') and not line.startswith('+++'):
                 current_hunk['added_lines'].append(current_new_line)
                 current_new_line += 1
             elif line.startswith('-') and not line.startswith('---'):
                 current_hunk['removed_lines'].append(current_new_line)
-                # Don't increment for removed lines
-            elif not line.startswith('\\'):  # Ignore "\ No newline at end of file"
-                # Context line (no +/-)
+            elif not line.startswith('\\'):
                 current_new_line += 1
     
-    # Append last hunk
     if current_hunk:
         hunks.append(current_hunk)
     
@@ -149,12 +137,10 @@ def validate_json_structure(json_str: str) -> bool:
     try:
         data = json.loads(json_str)
         
-        # Must be a list
         if not isinstance(data, list):
             logger.warning("JSON output is not a list")
             return False
         
-        # Each item should have required fields
         required_fields = {'file', 'line', 'type', 'severity', 'message'}
         for item in data:
             if not isinstance(item, dict):
@@ -186,18 +172,16 @@ def verify_webhook_signature(payload_body: bytes, signature_header: str) -> bool
     """
     if not settings.WEBHOOK_SECRET:
         logger.warning("WEBHOOK_SECRET not configured, skipping signature verification")
-        return True  # Skip verification if no secret configured (dev mode)
+        return True
     
     if not signature_header:
         return False
     
-    # GitHub sends signature as "sha256=<hash>"
     if not signature_header.startswith("sha256="):
         return False
     
-    expected_signature = signature_header[7:]  # Remove "sha256=" prefix
+    expected_signature = signature_header[7:]
     
-    # Compute HMAC-SHA256
     computed_hash = hmac.new(
         settings.WEBHOOK_SECRET.encode("utf-8"),
         payload_body,

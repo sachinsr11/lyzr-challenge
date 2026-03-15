@@ -22,7 +22,6 @@ class QualityAgent:
         Output (sample):
         - QualityAgent instance with llm_model and Agent(role="Senior Developer").
         """
-        # Use CustomLiteLLM for Gemini API routing
         self.llm_model = CustomLiteLLM(
             api_key=settings.GOOGLE_API_KEY,
             parameters={
@@ -52,7 +51,7 @@ class QualityAgent:
         """
         logger.info(f"Quality check on: {filename}")
 
-        # 1. Prepare Instruction with strict JSON schema enforcement
+        # 1. Prepare instruction
         instruction = f"""
         Analyze the following DIFF HUNK from '{filename}'.
 
@@ -103,14 +102,10 @@ class QualityAgent:
                 tasks=[task],
             ).run()
             
-            # 4. Parse Output
-            # Extract text from response
+            # 4. Parse output
             raw_output = response[0]['task_output'] if isinstance(response, list) else response
-            
-            # Clean markdown code blocks if present
             cleaned_output = clean_json_output(raw_output)
             
-            # Validate before parsing
             if not validate_json_structure(cleaned_output):
                 logger.error(f"Invalid JSON structure from Quality Agent for {filename}")
                 return []

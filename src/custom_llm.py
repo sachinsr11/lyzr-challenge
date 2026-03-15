@@ -16,7 +16,6 @@ class CustomLiteLLM(AIModel):
         Output (sample):
         - Initialized CustomLiteLLM instance with stored credentials/config.
         """
-        # FIX: Removed arguments from super().__init__()
         self.api_key = api_key
         self.parameters = parameters
 
@@ -38,13 +37,11 @@ class CustomLiteLLM(AIModel):
             temperature = self.parameters.get("temperature", 0.2)
             max_tokens = self.parameters.get("max_tokens", 2000)
 
-            # Construct messages for Chat Models (Gemini/GPT)
             messages = [
                 {"role": "system", "content": system_persona},
                 {"role": "user", "content": prompt},
             ]
 
-            # LiteLLM handles the complexity of calling Google/OpenAI/Anthropic
             response = completion(
                 model=model_name,
                 messages=messages,
